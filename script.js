@@ -5,6 +5,33 @@ mermaid.initialize();
 
 const DEFAULT_CODES = [
   {
+    name: "Dataflow example",
+    value: `
+public class DFExample{
+  int fib(int n, int m)
+  {
+    int a;
+    int b = 1;
+    int c = n;
+    int d, e = 2;
+    a = 1 - b;
+    c = c + 1;
+    if (a < 1) {
+      d = a + 1;
+    } else {
+      d = b + 1;
+    }
+    e++;
+    for(int i; i < n; i++) {
+      c += i;
+    }
+    System.out.println(c);
+    return d;
+  }
+}
+`,
+  },
+  {
     name: "For example",
     value: `
 public class ForExample{
@@ -206,6 +233,7 @@ async function analyzeCode(code, methodsEl, graphEl, outputEl) {
   }
 
   graphEl.value = flowchartCode;
+  return;
   const { svg, bindFunctions } = await mermaid.render("ast", flowchartCode);
   outputEl.innerHTML = svg;
   bindFunctions?.(outputEl);
@@ -215,6 +243,16 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   outputEl.innerText = "";
   graphEl.value = "";
 
+  const fnName =
+    method.methodHeader[0].children.methodDeclarator[0].children.Identifier[0]
+      .image;
+  const args =
+    method.methodHeader[0].children.methodDeclarator[0].children.formalParameterList[0].children.formalParameter.map(
+      (p) =>
+        p.children.variableParaRegularParameter[0].children
+          .variableDeclaratorId[0].children.Identifier[0].image
+    );
+  console.log(args);
   const statements = extractStatements(method.methodBody);
 
   console.log(statements);
@@ -228,19 +266,38 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   let nodes = [];
   let continues = [];
   let breaks = [];
+  const variableStack = [new Map(args.map((a) => [a, [{ id: 0 }]]))];
+  const getVar = (v) => {
+    for (let i = variableStack.length - 1; i >= 0; i--) {
+      if (variableStack[i].has(v)) {
+        return variableStack[i].get(v);
+      }
+    }
+    return [];
+  };
+  const setVar = (v, i) => {
+    variableStack[variableStack.length - 1].set(v, i);
+  };
   function processStatements(statements) {
+    variableStack.push(new Map());
+
     for (const _statement of statements) {
       if (parents.length == 0) {
         // Unreachable code
+        variableStack.pop();
         return;
       }
       const statement = unwrapStatement(_statement);
+      const dataParents = findUsedIdentifiers(statement).flatMap((i) =>
+        getVar(i)
+      );
       // console.log(statement);
       const { startOffset, endOffset } = statement.location;
       const currentId = getId();
       const node = {
         id: currentId,
         parents: parents,
+        dataParents: dataParents,
         text: codeEl.value.slice(startOffset, endOffset + 1),
         type: "ordinary",
       };
@@ -294,6 +351,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
           if (basicForStatement.children.forInit) {
             const forInit = basicForStatement.children.forInit[0];
             const forInitId = getId();
+            const dataParents = findUsedIdentifiers() // TODO
             nodes.push({
               id: forInitId,
               parents: parents,
@@ -409,6 +467,15 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
               ),
               type: "ordinary",
             });
+            setVar(
+              decl.children.variableDeclaratorId[0].children.Identifier[0]
+                .image,
+              [
+                {
+                  id: declId,
+                },
+              ]
+            );
 
             parents = [
               {
@@ -421,13 +488,14 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
         // Simple statement
       }
     }
+    variableStack.pop();
   }
 
   processStatements(statements);
 
   let flowchartCode = `flowchart TD\n`;
 
-  flowchartCode += `0(START)\n`;
+  flowchartCode += `0("\`${fnName}(${args.join(", ")})\`")\n`;
 
   console.log(nodes);
   for (const node of nodes) {
@@ -450,6 +518,15 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
       .map(
         (parentNode) =>
           `${parentNode.id} ==>${
+            parentNode.text ? `|${parentNode.text}|` : ""
+          } ${node.id}\n`
+      )
+      .join("");
+
+    flowchartCode += node.dataParents
+      .map(
+        (parentNode) =>
+          `${parentNode.id} -.->${
             parentNode.text ? `|${parentNode.text}|` : ""
           } ${node.id}\n`
       )
@@ -499,4 +576,35 @@ function unwrapStatement(ast) {
     return unwrapStatement(Object.values(ast.children)[0][0]);
   }
   return ast;
+}
+
+class UsedIdentifierExtractor extends javaParser.BaseJavaCstVisitorWithDefaults {
+  constructor() {
+    super();
+    this.customResult = [];
+    this.validateVisitor();
+  }
+
+  binaryExpression(ctx) {
+    if (ctx.AssignmentOperator) {
+      this.visit(ctx.expression);
+    } else {
+      Object.values(ctx)
+        .flat()
+        .forEach((data) => data.name && this.visit(data));
+    }
+  }
+
+  fqnOrRefType(ctx) {
+    const name =
+      ctx.fqnOrRefTypePartFirst[0].children.fqnOrRefTypePartCommon[0].children
+        .Identifier[0].image;
+    this.customResult.push(name);
+  }
+}
+
+function findUsedIdentifiers(ast) {
+  const extractor = new UsedIdentifierExtractor();
+  extractor.visit(ast);
+  return extractor.customResult;
 }
