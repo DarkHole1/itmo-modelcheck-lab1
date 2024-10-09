@@ -321,6 +321,9 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
 
         node.type = "conditional";
         node.text = codePart;
+        node.dataParents = findUsedIdentifiers(expression).flatMap((i) =>
+          getVar(i)
+        );
 
         let nextParents = [];
         for (const [i, part] of ifStatement.children.statement.entries()) {
@@ -351,9 +354,12 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
           if (basicForStatement.children.forInit) {
             const forInit = basicForStatement.children.forInit[0];
             const forInitId = getId();
-            const dataParents = findUsedIdentifiers() // TODO
+            const dataParents = findUsedIdentifiers(forInit).flatMap((e) =>
+              getVar(e)
+            );
             nodes.push({
               id: forInitId,
+              dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
                 forInit.location.startOffset,
@@ -375,8 +381,12 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
           if (basicForStatement.children.expression) {
             const expression = basicForStatement.children.expression[0];
             const expressionId = getId();
+            const dataParents = findUsedIdentifiers(expression).flatMap((e) =>
+              getVar(e)
+            );
             const expressionNode = {
               id: expressionId,
+              dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
                 expression.location.startOffset,
@@ -407,8 +417,12 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
           if (basicForStatement.children.forUpdate) {
             const forUpdate = basicForStatement.children.forUpdate[0];
             const forUpdateId = getId();
+            const dataParents = findUsedIdentifiers(forUpdate).flatMap((e) =>
+              getVar(e)
+            );
             nodes.push({
               id: forUpdateId,
+              dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
                 forUpdate.location.startOffset,
@@ -458,8 +472,12 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
         for (const decl of decls) {
           if (decl.children.variableInitializer) {
             const declId = getId();
+            const dataParents = findUsedIdentifiers(
+              decl.children.variableInitializer
+            ).flatMap((e) => getVar(e));
             nodes.push({
               id: declId,
+              dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
                 decl.location.startOffset,
@@ -484,6 +502,19 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
             ];
           }
         }
+      } else if (
+        statement.children?.conditionalExpression
+          ?.at(0)
+          ?.children?.binaryExpression?.at(0)?.children?.AssignmentOperator
+      ) {
+        const assignment = statement.children.conditionalExpression
+          .at(0)
+          .children?.binaryExpression?.at(0);
+        setVar(assignment.children.unaryExpression[0].children.primary[0].children.primaryPrefix[0].children.fqnOrRefType[0].children.fqnOrRefTypePartFirst[0].children.fqnOrRefTypePartCommon[0].children.Identifier[0].image,
+          [{
+            id: currentId
+          }]
+        )
       } else {
         // Simple statement
       }
@@ -571,7 +602,9 @@ function unwrapStatement(ast) {
   if (
     ast.name == "blockStatement" ||
     ast.name == "statementWithoutTrailingSubstatement" ||
-    ast.name == "statement"
+    ast.name == "statement" ||
+    ast.name == "statementExpression" ||
+    ast.name == "expressionStatement"
   ) {
     return unwrapStatement(Object.values(ast.children)[0][0]);
   }
