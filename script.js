@@ -380,6 +380,35 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
                 id: forInitId,
               },
             ];
+
+            if (
+              forInit.children?.statementExpressionList
+                ?.at(0)
+                ?.children?.statementExpression?.at(0)
+                ?.children?.expression?.at(0)
+                ?.children?.conditionalExpression?.at(0)
+                ?.children?.binaryExpression?.at(0)?.children
+                ?.AssignmentOperator
+            ) {
+              const assignment = forInit.children.statementExpressionList
+                .at(0)
+                .children.statementExpression.at(0)
+                .children.expression.at(0)
+                .children.conditionalExpression.at(0)
+                .children.binaryExpression.at(0);
+
+              setVar(
+                assignment.children.unaryExpression[0].children.primary[0]
+                  .children.primaryPrefix[0].children.fqnOrRefType[0].children
+                  .fqnOrRefTypePartFirst[0].children.fqnOrRefTypePartCommon[0]
+                  .children.Identifier[0].image,
+                [
+                  {
+                    id: forInitId,
+                  },
+                ]
+              );
+            }
           }
 
           let hasCond = false;
