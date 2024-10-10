@@ -284,8 +284,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
     for (const _statement of statements) {
       if (parents.length == 0) {
         // Unreachable code
-        variableStack.pop();
-        return;
+        return variableStack.pop();
       }
       const statement = unwrapStatement(_statement);
       const dataParents = findUsedIdentifiers(statement).flatMap((i) =>
@@ -296,6 +295,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
       const currentId = getId();
       const node = {
         id: currentId,
+        ast: statement,
         parents: parents,
         dataParents: dataParents,
         text: codeEl.value.slice(startOffset, endOffset + 1),
@@ -319,6 +319,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
           expression.location.endOffset + 1
         );
 
+        node.ast = expression;
         node.type = "conditional";
         node.text = codePart;
         node.dataParents = findUsedIdentifiers(expression).flatMap((i) =>
@@ -326,6 +327,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
         );
 
         let nextParents = [];
+        let vars = [];
         for (const [i, part] of ifStatement.children.statement.entries()) {
           const statements = extractStatements(part);
           parents = [
@@ -335,7 +337,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
             },
           ];
           // console.log(statements);
-          processStatements(statements);
+          vars.push(processStatements(statements));
           nextParents = nextParents.concat(parents);
         }
         if (ifStatement.children.statement.length < 2) {
@@ -345,6 +347,11 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
           });
         }
         parents = nextParents;
+        for (const map of vars) {
+          for (const entry of map.entries()) {
+            setVar(entry[0], getVar(entry[0]).concat(entry[1]));
+          }
+        }
       } else if (statement.name == "forStatement") {
         // For statement
         if (statement.children.basicForStatement) {
@@ -359,6 +366,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
             );
             nodes.push({
               id: forInitId,
+              ast: forInit,
               dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
@@ -386,6 +394,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
             );
             const expressionNode = {
               id: expressionId,
+              ast: expression,
               dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
@@ -412,7 +421,10 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
           const tmpContinues = continues;
           breaks = [];
           continues = [];
-          processStatements(statements);
+          let varMap = processStatements(statements);
+          for (const entry of varMap.entries()) {
+            setVar(entry[0], getVar(entry[0]).concat(entry[1]));
+          }
 
           if (basicForStatement.children.forUpdate) {
             const forUpdate = basicForStatement.children.forUpdate[0];
@@ -422,6 +434,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
             );
             nodes.push({
               id: forUpdateId,
+              ast: forUpdate,
               dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
@@ -454,6 +467,16 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
 
           breaks = tmpBreaks;
           continues = tmpContinues;
+
+          for (let i = next; i < nodes.length; i++) {
+            const used = findUsedIdentifiers(nodes[i].ast).flatMap((i) =>
+              getVar(i)
+            );
+            const filtered = used.filter((e) =>
+              nodes[i].dataParents.every((a) => a.id != e.id)
+            );
+            nodes[i].dataParents = nodes[i].dataParents.concat(filtered);
+          }
         }
       } else if (statement.name == "returnStatement") {
         parents = [];
@@ -477,6 +500,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
             ).flatMap((e) => getVar(e));
             nodes.push({
               id: declId,
+              ast: decl.children.variableInitializer,
               dataParents: dataParents,
               parents: parents,
               text: codeEl.value.slice(
@@ -510,16 +534,22 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
         const assignment = statement.children.conditionalExpression
           .at(0)
           .children?.binaryExpression?.at(0);
-        setVar(assignment.children.unaryExpression[0].children.primary[0].children.primaryPrefix[0].children.fqnOrRefType[0].children.fqnOrRefTypePartFirst[0].children.fqnOrRefTypePartCommon[0].children.Identifier[0].image,
-          [{
-            id: currentId
-          }]
-        )
+        setVar(
+          assignment.children.unaryExpression[0].children.primary[0].children
+            .primaryPrefix[0].children.fqnOrRefType[0].children
+            .fqnOrRefTypePartFirst[0].children.fqnOrRefTypePartCommon[0]
+            .children.Identifier[0].image,
+          [
+            {
+              id: currentId,
+            },
+          ]
+        );
       } else {
         // Simple statement
       }
     }
-    variableStack.pop();
+    return variableStack.pop();
   }
 
   processStatements(statements);
