@@ -224,15 +224,9 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   const fnName = method.name;
   const args = method.parameters.map((p) => p.name);
   let statements = method.body;
-  console.log(statements);
-  statements = removeDeclarations(statements);
-  console.log(statements);
-  return;
-
-  console.log(args);
-  // const statements = extractStatements(method.methodBody);
 
   console.log(statements);
+
   let i = 1;
   const getId = () => i++;
   let parents = [
@@ -240,9 +234,11 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
       id: 0,
     },
   ];
+
   let nodes = [];
   let continues = [];
   let breaks = [];
+
   const variableStack = [new Map(args.map((a) => [a, [{ id: 0 }]]))];
   const getVar = (v) => {
     for (let i = variableStack.length - 1; i >= 0; i--) {
@@ -255,15 +251,18 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   const setVar = (v, i) => {
     variableStack[variableStack.length - 1].set(v, i);
   };
+
   function processStatements(statements) {
     variableStack.push(new Map());
 
-    for (const _statement of statements) {
+    const s = removeDeclarations(statements);
+
+    for (const statement of s) {
       if (parents.length == 0) {
         // Unreachable code
         return variableStack.pop();
       }
-      const statement = unwrapStatement(_statement);
+
       const dataParents = findUsedIdentifiers(statement).flatMap((i) =>
         getVar(i)
       );
@@ -1455,6 +1454,14 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     if (ctx.fqnOrRefType) {
       return this.visit(ctx.fqnOrRefType);
     }
+
+    if (ctx.parenthesisExpression) {
+      return this.visit(ctx.parenthesisExpression);
+    }
+  }
+
+  parenthesisExpression(ctx) {
+    return this.visit(ctx.expression);
   }
 
   fqnOrRefType(ctx) {
@@ -1900,9 +1907,6 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     throw new Error("Not implemented");
   }
   primarySuffix() {
-    throw new Error("Not implemented");
-  }
-  parenthesisExpression() {
     throw new Error("Not implemented");
   }
   castExpression() {
