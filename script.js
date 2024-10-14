@@ -190,8 +190,8 @@ async function analyzeCode(code, methodsEl, graphEl, outputEl) {
   console.log(ast);
 
   const builder = new BuildAst();
-  // builder.visit(ast);
-  // console.log(builder.types);
+  builder.visit(ast);
+  console.log(builder.types);
 
   const methodsFinder = new MethodsFinder();
   methodsFinder.visit(ast);
@@ -713,9 +713,16 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     this.validateVisitor();
   }
 
+  visit(to) {
+    if(!to) {
+      throw new Error("Visit undefined")
+    }
+    return super.visit(to)
+  }
+
   compilationUnit(ctx) {
     if (ctx.ordinaryCompilationUnit) {
-      this.visit(ordinaryCompilationUnit);
+      this.visit(ctx.ordinaryCompilationUnit);
     }
     // Not interested in modular compilation unit
   }
@@ -724,7 +731,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     // Not interested in package declaration
     // Not interestef in import declaration
     for (const type of ctx.typeDeclaration) {
-      this.visit(type);
+      this.types.push(this.visit(type));
       // TODO
     }
   }
@@ -818,7 +825,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
   classBodyDeclaration(ctx) {
     if (ctx.classMemberDeclaration) {
-      return this.visit(ctx.classsMemberDeclaration);
+      return this.visit(ctx.classMemberDeclaration);
     }
 
     // Not interested in not methods
@@ -862,7 +869,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   variableDeclaratorId(ctx) {
     if (ctx.Identifier) {
       // Ignore dims
-      return ctx.Identifier.image;
+      return ctx.Identifier[0].image;
     }
 
     if (ctx.Underscore) {
@@ -876,7 +883,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     }
 
     // Not interested in array initializer
-    throw new Exception("Not implemented");
+    throw new Error("Not implemented");
   }
 
   unannType(ctx) {
@@ -921,6 +928,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   methodDeclaration(ctx) {
     // Ignore modifiers
     return {
+      type: 'method',
       ...this.visit(ctx.methodHeader),
       ...this.visit(ctx.methodBody),
     };
@@ -928,6 +936,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
   methodHeader(ctx) {
     // Ignore type parameters
+    console.log(ctx)
     const result = this.visit(ctx.result);
     const declarator = this.visit(ctx.methodDeclarator);
     // Ignore throws
@@ -948,15 +957,15 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   }
 
   methodDeclarator(ctx) {
-    const name = ctx.Identifier.image;
+    const name = ctx.Identifier[0].image;
     // Ignore receiver parameter
-    const parameters = this.visit(ctx.formalParameterList);
+    const parameters = ctx.formalParameterList ? this.visit(ctx.formalParameterList) : [];
     // Ignore dims
     return { name, parameters };
   }
 
   formalParameterList(ctx) {
-    return this.formalParameter.map((p) => this.visit(p));
+    return ctx.formalParameter.map((p) => this.visit(p));
   }
 
   formalParameter(ctx) {
@@ -994,7 +1003,8 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   blockStatement(ctx) {
     if (ctx.localVariableDeclarationStatement) {
       return {
-        declaration: this.visit(ctx.localVariableDeclaration),
+        type: 'declaration',
+        declaration: this.visit(ctx.localVariableDeclarationStatement),
       };
     }
 
@@ -1002,6 +1012,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
     if (ctx.statement) {
       return {
+        type: 'statement',
         statement: this.visit(ctx.statement),
       };
     }
@@ -1014,7 +1025,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   localVariableDeclaration(ctx) {
     // Ignore modifier
     const type = this.visit(ctx.localVariableType);
-    const variables = this.visit(ctx.localVariableDeclaratorList);
+    const variables = this.visit(ctx.variableDeclaratorList);
     return {
       type,
       variables,
@@ -1033,7 +1044,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
   statement(ctx) {
     if (ctx.statementWithoutTrailingSubstatement) {
-      return this.visit(statementWithoutTrailingSubstatement);
+      return this.visit(ctx.statementWithoutTrailingSubstatement);
     }
 
     if (ctx.labeledStatement) {
@@ -1116,13 +1127,13 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   ifStatement(ctx) {
     const cond = this.visit(ctx.expression);
     const then = this.visit(ctx.statement[0]);
-    const othewise =
+    const otherwise =
       ctx.statement.length > 1 ? this.visit(ctx.statement[1]) : null;
     return {
       type: "if",
       cond,
       then,
-      othewise,
+      otherwise,
     };
   }
 
@@ -1220,12 +1231,12 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   }
 
   breakStatement(ctx) {
-    const to = ctx.Identifier ? ctx.Identifier.image : null;
+    const to = ctx.Identifier ? ctx.Identifier[0].image : null;
     return { type: "break", to };
   }
 
   continueStatement(ctx) {
-    const to = ctx.Identifier ? ctx.Identifier.image : null;
+    const to = ctx.Identifier ? ctx.Identifier[0].image : null;
     return { type: "continue", to };
   }
 
@@ -1251,7 +1262,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
       return {
         type: "literal",
         literal: "char",
-        image: ctx.CharLiteral.image,
+        image: ctx.CharLiteral[0].image,
       };
     }
 
@@ -1259,7 +1270,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
       return {
         type: "literal",
         literal: "textblock",
-        image: ctx.TextBlock.image,
+        image: ctx.TextBlock[0].image,
       };
     }
 
@@ -1267,7 +1278,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
       return {
         type: "literal",
         literal: "string",
-        image: ctx.StringLiteral.image,
+        image: ctx.StringLiteral[0].image,
       };
     }
 
@@ -1284,19 +1295,19 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     let image = null;
 
     if (ctx.DecimalLiteral) {
-      image = ctx.DecimalLiteral.image;
+      image = ctx.DecimalLiteral[0].image;
     }
 
     if (ctx.HexLiteral) {
-      image = ctx.HexLiteral.image;
+      image = ctx.HexLiteral[0].image;
     }
 
     if (ctx.OctalLiteral) {
-      image = ctx.OctalLiteral.image;
+      image = ctx.OctalLiteral[0].image;
     }
 
     if (ctx.BinaryLiteral) {
-      image = ctx.BinaryLiteral.image;
+      image = ctx.BinaryLiteral[0].image;
     }
 
     return {
@@ -1311,7 +1322,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
       return {
         type: "literal",
         literal: "float",
-        image: ctx.FloatLiteral.image,
+        image: ctx.FloatLiteral[0].image,
       };
     }
 
@@ -1319,7 +1330,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
       return {
         type: "literal",
         literal: "float",
-        image: ctx.HexFloatLiteral.image,
+        image: ctx.HexFloatLiteral[0].image,
       };
     }
   }
@@ -1328,7 +1339,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     return {
       type: "literal",
       literal: "boolean",
-      image: (ctx.True ?? ctx.False).image,
+      image: (ctx.True ?? ctx.False)[0].image,
     };
   }
 
@@ -1385,7 +1396,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     if (ctx.AssignmentOperator) {
       return {
         type: "assignment",
-        op: ctx.AssignmentOperator.image,
+        op: ctx.AssignmentOperator[0].image,
         left: this.visit(ctx.unaryExpression[0]),
         right: this.visit(ctx.expression),
       };
@@ -1395,8 +1406,8 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
       // This won't work with shifts operators
       return {
         type: "binary",
-        ops: ctx.BinaryOperator.concat(ctx.Less)
-          .concat(ctx.Greater)
+        ops: ctx.BinaryOperator.concat(ctx.Less ?? [])
+          .concat(ctx.Greater ?? [])
           .sort((a, b) => a.startOffset - b.startOffset)
           .map((e) => e.image),
         exps: ctx.unaryExpression.map((u) => this.visit(u)),
@@ -1410,8 +1421,8 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     const pre = ctx.UnaryPrefixOperator
       ? ctx.UnaryPrefixOperator.map((u) => u.image)
       : [];
-    const post = ctx.UnaryPostfixOperator
-      ? ctx.UnaryPostfixOperator.map((u) => u.image)
+    const post = ctx.UnarySuffixOperator
+      ? ctx.UnarySuffixOperator.map((u) => u.image)
       : [];
     const primary = this.visit(ctx.primary);
 
@@ -1423,6 +1434,8 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
         exp: primary,
       };
     }
+
+    return primary
   }
 
   primary(ctx) {
@@ -1459,7 +1472,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
   fqnOrRefTypePartCommon(ctx) {
     // Ignore rest
-    return ctx.Identifier.image;
+    return ctx.Identifier[0].image;
   }
 
   fqnOrRefTypePartFirst(ctx) {
@@ -1467,165 +1480,519 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     return this.visit(ctx.fqnOrRefTypePartCommon);
   }
 
+  typeIdentifier(ctx) {
+    return ctx.Identifier[0].image;
+  }
+
+  numericType(ctx) {
+    if (ctx.integralType) {
+      return this.visit(ctx.integralType);
+    }
+
+    if (ctx.floatingPointType) {
+      return this.visit(ctx.floatingPointType);
+    }
+  }
+
+  integralType(ctx) {
+    if (ctx.Byte) {
+      return ctx.Byte[0].image;
+    }
+
+    if (ctx.Short) {
+      return ctx.Short[0].image;
+    }
+
+    if (ctx.Int) {
+      return ctx.Int[0].image;
+    }
+
+    if (ctx.Long) {
+      return ctx.Long[0].image;
+    }
+
+    if (ctx.Char) {
+      return ctx.Char[0].image;
+    }
+  }
+
+  floatingPointType() {
+    if (ctx.Float) {
+      return ctx.Float[0].image;
+    }
+
+    if (ctx.Byte) {
+      return ctx.Double[0].image;
+    }
+  }
+
   // Unimplemented
-  typeIdentifier() { throw new Exception("Not implemented") }
-	primitiveType() { throw new Exception("Not implemented") }
-	numericType() { throw new Exception("Not implemented") }
-	integralType() { throw new Exception("Not implemented") }
-	floatingPointType() { throw new Exception("Not implemented") }
-	referenceType() { throw new Exception("Not implemented") }
-	classOrInterfaceType() { throw new Exception("Not implemented") }
-	classType() { throw new Exception("Not implemented") }
-	interfaceType() { throw new Exception("Not implemented") }
-	typeVariable() { throw new Exception("Not implemented") }
-	dims() { throw new Exception("Not implemented") }
-	typeParameter() { throw new Exception("Not implemented") }
-	typeParameterModifier() { throw new Exception("Not implemented") }
-	typeBound() { throw new Exception("Not implemented") }
-	additionalBound() { throw new Exception("Not implemented") }
-	typeArguments() { throw new Exception("Not implemented") }
-	typeArgumentList() { throw new Exception("Not implemented") }
-	typeArgument() { throw new Exception("Not implemented") }
-	wildcard() { throw new Exception("Not implemented") }
-	wildcardBounds() { throw new Exception("Not implemented") }
-	classModifier() { throw new Exception("Not implemented") }
-	classPermits() { throw new Exception("Not implemented") }
-	fieldDeclaration() { throw new Exception("Not implemented") }
-	fieldModifier() { throw new Exception("Not implemented") }
-	unannInterfaceType() { throw new Exception("Not implemented") }
-	unannTypeVariable() { throw new Exception("Not implemented") }
-	methodModifier() { throw new Exception("Not implemented") }
-	receiverParameter() { throw new Exception("Not implemented") }
-	variableArityParameter() { throw new Exception("Not implemented") }
-	variableModifier() { throw new Exception("Not implemented") }
-	throws() { throw new Exception("Not implemented") }
-  exceptionTypeList() { throw new Exception("Not implemented") }
-	exceptionType() { throw new Exception("Not implemented") }
-	instanceInitializer() { throw new Exception("Not implemented") }
-	staticInitializer() { throw new Exception("Not implemented") }
-	constructorDeclaration() { throw new Exception("Not implemented") }
-	constructorModifier() { throw new Exception("Not implemented") }
-	constructorDeclarator() { throw new Exception("Not implemented") }
-	simpleTypeName() { throw new Exception("Not implemented") }
-	constructorBody() { throw new Exception("Not implemented") }
-	explicitConstructorInvocation() { throw new Exception("Not implemented") }
-	unqualifiedExplicitConstructorInvocation() { throw new Exception("Not implemented") }
-	qualifiedExplicitConstructorInvocation() { throw new Exception("Not implemented") }
-	enumDeclaration() { throw new Exception("Not implemented") }
-	enumBody() { throw new Exception("Not implemented") }
-	enumConstantList() { throw new Exception("Not implemented") }
-	enumConstant() { throw new Exception("Not implemented") }
-	enumConstantModifier() { throw new Exception("Not implemented") }
-	enumBodyDeclarations() { throw new Exception("Not implemented") }
-	recordDeclaration() { throw new Exception("Not implemented") }
-	recordHeader() { throw new Exception("Not implemented") }
-	recordComponentList() { throw new Exception("Not implemented") }
-	recordComponent() { throw new Exception("Not implemented") }
-	variableArityRecordComponent() { throw new Exception("Not implemented") }
-	recordComponentModifier() { throw new Exception("Not implemented") }
-	recordBody() { throw new Exception("Not implemented") }
-	recordBodyDeclaration() { throw new Exception("Not implemented") }
-	compactConstructorDeclaration() { throw new Exception("Not implemented") }
-	isDims() { throw new Exception("Not implemented") }
-	modularCompilationUnit() { throw new Exception("Not implemented") }
-	packageDeclaration() { throw new Exception("Not implemented") }
-	packageModifier() { throw new Exception("Not implemented") }
-	importDeclaration() { throw new Exception("Not implemented") }
-	moduleDeclaration() { throw new Exception("Not implemented") }
-	moduleDirective() { throw new Exception("Not implemented") }
-	requiresModuleDirective() { throw new Exception("Not implemented") }
-	exportsModuleDirective() { throw new Exception("Not implemented") }
-	opensModuleDirective() { throw new Exception("Not implemented") }
-	usesModuleDirective() { throw new Exception("Not implemented") }
-	providesModuleDirective() { throw new Exception("Not implemented") }
-	requiresModifier() { throw new Exception("Not implemented") }
-	interfaceDeclaration() { throw new Exception("Not implemented") }
-	normalInterfaceDeclaration() { throw new Exception("Not implemented") }
-	interfaceModifier() { throw new Exception("Not implemented") }
-	interfaceExtends() { throw new Exception("Not implemented") }
-	interfacePermits() { throw new Exception("Not implemented") }
-	interfaceBody() { throw new Exception("Not implemented") }
-	interfaceMemberDeclaration() { throw new Exception("Not implemented") }
-	constantDeclaration() { throw new Exception("Not implemented") }
-	constantModifier() { throw new Exception("Not implemented") }
-	interfaceMethodDeclaration() { throw new Exception("Not implemented") }
-	interfaceMethodModifier() { throw new Exception("Not implemented") }
-	annotationInterfaceDeclaration() { throw new Exception("Not implemented") }
-	annotationInterfaceBody() { throw new Exception("Not implemented") }
-	annotationInterfaceMemberDeclaration() { throw new Exception("Not implemented") }
-	annotationInterfaceElementDeclaration() { throw new Exception("Not implemented") }
-	annotationInterfaceElementModifier() { throw new Exception("Not implemented") }
-	defaultValue() { throw new Exception("Not implemented") }
-	annotation() { throw new Exception("Not implemented") }
-	elementValuePairList() { throw new Exception("Not implemented") }
-	elementValuePair() { throw new Exception("Not implemented") }
-	elementValue() { throw new Exception("Not implemented") }
-	elementValueArrayInitializer() { throw new Exception("Not implemented") }
-	elementValueList() { throw new Exception("Not implemented") }
-	arrayInitializer() { throw new Exception("Not implemented") }
-	variableInitializerList() { throw new Exception("Not implemented") }
-	emptyStatement() { throw new Exception("Not implemented") }
-	assertStatement() { throw new Exception("Not implemented") }
-	switchRule() { throw new Exception("Not implemented") }
-	casePattern() { throw new Exception("Not implemented") }
-	enhancedForStatement() { throw new Exception("Not implemented") }
-	throwStatement() { throw new Exception("Not implemented") }
-	synchronizedStatement() { throw new Exception("Not implemented") }
-	tryStatement() { throw new Exception("Not implemented") }
-	catches() { throw new Exception("Not implemented") }
-	catchClause() { throw new Exception("Not implemented") }
-	catchFormalParameter() { throw new Exception("Not implemented") }
-	catchType() { throw new Exception("Not implemented") }
-	finally() { throw new Exception("Not implemented") }
-	tryWithResourcesStatement() { throw new Exception("Not implemented") }
-	resourceSpecification() { throw new Exception("Not implemented") }
-	resourceList() { throw new Exception("Not implemented") }
-	resource() { throw new Exception("Not implemented") }
-	yieldStatement() { throw new Exception("Not implemented") }
-	variableAccess() { throw new Exception("Not implemented") }
-	lambdaExpression() { throw new Exception("Not implemented") }
-	lambdaParameters() { throw new Exception("Not implemented") }
-	lambdaParametersWithBraces() { throw new Exception("Not implemented") }
-	lambdaParameterList() { throw new Exception("Not implemented") }
-	conciseLambdaParameterList() { throw new Exception("Not implemented") }
-	normalLambdaParameterList() { throw new Exception("Not implemented") }
-	normalLambdaParameter() { throw new Exception("Not implemented") }
-	regularLambdaParameter() { throw new Exception("Not implemented") }
-	lambdaParameterType() { throw new Exception("Not implemented") }
-	conciseLambdaParameter() { throw new Exception("Not implemented") }
-	lambdaBody() { throw new Exception("Not implemented") }
-	unaryExpressionNotPlusMinus() { throw new Exception("Not implemented") }
-	primarySuffix() { throw new Exception("Not implemented") }
-	parenthesisExpression() { throw new Exception("Not implemented") }
-	castExpression() { throw new Exception("Not implemented") }
-	primitiveCastExpression() { throw new Exception("Not implemented") }
-	referenceTypeCastExpression() { throw new Exception("Not implemented") }
-	newExpression() { throw new Exception("Not implemented") }
-	unqualifiedClassInstanceCreationExpression() { throw new Exception("Not implemented") }
-	classOrInterfaceTypeToInstantiate() { throw new Exception("Not implemented") }
-	typeArgumentsOrDiamond() { throw new Exception("Not implemented") }
-	diamond() { throw new Exception("Not implemented") }
-	methodInvocationSuffix() { throw new Exception("Not implemented") }
-	argumentList() { throw new Exception("Not implemented") }
-	arrayCreationExpression() { throw new Exception("Not implemented") }
-	arrayCreationExpressionWithoutInitializerSuffix() { throw new Exception("Not implemented") }
-	arrayCreationWithInitializerSuffix() { throw new Exception("Not implemented") }
-	dimExprs() { throw new Exception("Not implemented") }
-	dimExpr() { throw new Exception("Not implemented") }
-	classLiteralSuffix() { throw new Exception("Not implemented") }
-	arrayAccessSuffix() { throw new Exception("Not implemented") }
-	methodReferenceSuffix() { throw new Exception("Not implemented") }
-	templateArgument() { throw new Exception("Not implemented") }
-	template() { throw new Exception("Not implemented") }
-	stringTemplate() { throw new Exception("Not implemented") }
-	textBlockTemplate() { throw new Exception("Not implemented") }
-	embeddedExpression() { throw new Exception("Not implemented") }
-	pattern() { throw new Exception("Not implemented") }
-	typePattern() { throw new Exception("Not implemented") }
-	recordPattern() { throw new Exception("Not implemented") }
-	componentPatternList() { throw new Exception("Not implemented") }
-	componentPattern() { throw new Exception("Not implemented") }
-	matchAllPattern() { throw new Exception("Not implemented") }
-	guard() { throw new Exception("Not implemented") }
-	isRefTypeInMethodRef() { throw new Exception("Not implemented") }
+  primitiveType() {
+    throw new Error("Not implemented");
+  }
+  referenceType() {
+    throw new Error("Not implemented");
+  }
+  classOrInterfaceType() {
+    throw new Error("Not implemented");
+  }
+  classType() {
+    throw new Error("Not implemented");
+  }
+  interfaceType() {
+    throw new Error("Not implemented");
+  }
+  typeVariable() {
+    throw new Error("Not implemented");
+  }
+  dims() {
+    throw new Error("Not implemented");
+  }
+  typeParameter() {
+    throw new Error("Not implemented");
+  }
+  typeParameterModifier() {
+    throw new Error("Not implemented");
+  }
+  typeBound() {
+    throw new Error("Not implemented");
+  }
+  additionalBound() {
+    throw new Error("Not implemented");
+  }
+  typeArguments() {
+    throw new Error("Not implemented");
+  }
+  typeArgumentList() {
+    throw new Error("Not implemented");
+  }
+  typeArgument() {
+    throw new Error("Not implemented");
+  }
+  wildcard() {
+    throw new Error("Not implemented");
+  }
+  wildcardBounds() {
+    throw new Error("Not implemented");
+  }
+  classModifier() {
+    throw new Error("Not implemented");
+  }
+  classPermits() {
+    throw new Error("Not implemented");
+  }
+  fieldDeclaration() {
+    throw new Error("Not implemented");
+  }
+  fieldModifier() {
+    throw new Error("Not implemented");
+  }
+  unannInterfaceType() {
+    throw new Error("Not implemented");
+  }
+  unannTypeVariable() {
+    throw new Error("Not implemented");
+  }
+  methodModifier() {
+    throw new Error("Not implemented");
+  }
+  receiverParameter() {
+    throw new Error("Not implemented");
+  }
+  variableArityParameter() {
+    throw new Error("Not implemented");
+  }
+  variableModifier() {
+    throw new Error("Not implemented");
+  }
+  throws() {
+    throw new Error("Not implemented");
+  }
+  exceptionTypeList() {
+    throw new Error("Not implemented");
+  }
+  exceptionType() {
+    throw new Error("Not implemented");
+  }
+  instanceInitializer() {
+    throw new Error("Not implemented");
+  }
+  staticInitializer() {
+    throw new Error("Not implemented");
+  }
+  constructorDeclaration() {
+    throw new Error("Not implemented");
+  }
+  constructorModifier() {
+    throw new Error("Not implemented");
+  }
+  constructorDeclarator() {
+    throw new Error("Not implemented");
+  }
+  simpleTypeName() {
+    throw new Error("Not implemented");
+  }
+  constructorBody() {
+    throw new Error("Not implemented");
+  }
+  explicitConstructorInvocation() {
+    throw new Error("Not implemented");
+  }
+  unqualifiedExplicitConstructorInvocation() {
+    throw new Error("Not implemented");
+  }
+  qualifiedExplicitConstructorInvocation() {
+    throw new Error("Not implemented");
+  }
+  enumDeclaration() {
+    throw new Error("Not implemented");
+  }
+  enumBody() {
+    throw new Error("Not implemented");
+  }
+  enumConstantList() {
+    throw new Error("Not implemented");
+  }
+  enumConstant() {
+    throw new Error("Not implemented");
+  }
+  enumConstantModifier() {
+    throw new Error("Not implemented");
+  }
+  enumBodyDeclarations() {
+    throw new Error("Not implemented");
+  }
+  recordDeclaration() {
+    throw new Error("Not implemented");
+  }
+  recordHeader() {
+    throw new Error("Not implemented");
+  }
+  recordComponentList() {
+    throw new Error("Not implemented");
+  }
+  recordComponent() {
+    throw new Error("Not implemented");
+  }
+  variableArityRecordComponent() {
+    throw new Error("Not implemented");
+  }
+  recordComponentModifier() {
+    throw new Error("Not implemented");
+  }
+  recordBody() {
+    throw new Error("Not implemented");
+  }
+  recordBodyDeclaration() {
+    throw new Error("Not implemented");
+  }
+  compactConstructorDeclaration() {
+    throw new Error("Not implemented");
+  }
+  isDims() {
+    throw new Error("Not implemented");
+  }
+  modularCompilationUnit() {
+    throw new Error("Not implemented");
+  }
+  packageDeclaration() {
+    throw new Error("Not implemented");
+  }
+  packageModifier() {
+    throw new Error("Not implemented");
+  }
+  importDeclaration() {
+    throw new Error("Not implemented");
+  }
+  moduleDeclaration() {
+    throw new Error("Not implemented");
+  }
+  moduleDirective() {
+    throw new Error("Not implemented");
+  }
+  requiresModuleDirective() {
+    throw new Error("Not implemented");
+  }
+  exportsModuleDirective() {
+    throw new Error("Not implemented");
+  }
+  opensModuleDirective() {
+    throw new Error("Not implemented");
+  }
+  usesModuleDirective() {
+    throw new Error("Not implemented");
+  }
+  providesModuleDirective() {
+    throw new Error("Not implemented");
+  }
+  requiresModifier() {
+    throw new Error("Not implemented");
+  }
+  interfaceDeclaration() {
+    throw new Error("Not implemented");
+  }
+  normalInterfaceDeclaration() {
+    throw new Error("Not implemented");
+  }
+  interfaceModifier() {
+    throw new Error("Not implemented");
+  }
+  interfaceExtends() {
+    throw new Error("Not implemented");
+  }
+  interfacePermits() {
+    throw new Error("Not implemented");
+  }
+  interfaceBody() {
+    throw new Error("Not implemented");
+  }
+  interfaceMemberDeclaration() {
+    throw new Error("Not implemented");
+  }
+  constantDeclaration() {
+    throw new Error("Not implemented");
+  }
+  constantModifier() {
+    throw new Error("Not implemented");
+  }
+  interfaceMethodDeclaration() {
+    throw new Error("Not implemented");
+  }
+  interfaceMethodModifier() {
+    throw new Error("Not implemented");
+  }
+  annotationInterfaceDeclaration() {
+    throw new Error("Not implemented");
+  }
+  annotationInterfaceBody() {
+    throw new Error("Not implemented");
+  }
+  annotationInterfaceMemberDeclaration() {
+    throw new Error("Not implemented");
+  }
+  annotationInterfaceElementDeclaration() {
+    throw new Error("Not implemented");
+  }
+  annotationInterfaceElementModifier() {
+    throw new Error("Not implemented");
+  }
+  defaultValue() {
+    throw new Error("Not implemented");
+  }
+  annotation() {
+    throw new Error("Not implemented");
+  }
+  elementValuePairList() {
+    throw new Error("Not implemented");
+  }
+  elementValuePair() {
+    throw new Error("Not implemented");
+  }
+  elementValue() {
+    throw new Error("Not implemented");
+  }
+  elementValueArrayInitializer() {
+    throw new Error("Not implemented");
+  }
+  elementValueList() {
+    throw new Error("Not implemented");
+  }
+  arrayInitializer() {
+    throw new Error("Not implemented");
+  }
+  variableInitializerList() {
+    throw new Error("Not implemented");
+  }
+  emptyStatement() {
+    throw new Error("Not implemented");
+  }
+  assertStatement() {
+    throw new Error("Not implemented");
+  }
+  switchRule() {
+    throw new Error("Not implemented");
+  }
+  casePattern() {
+    throw new Error("Not implemented");
+  }
+  enhancedForStatement() {
+    throw new Error("Not implemented");
+  }
+  throwStatement() {
+    throw new Error("Not implemented");
+  }
+  synchronizedStatement() {
+    throw new Error("Not implemented");
+  }
+  tryStatement() {
+    throw new Error("Not implemented");
+  }
+  catches() {
+    throw new Error("Not implemented");
+  }
+  catchClause() {
+    throw new Error("Not implemented");
+  }
+  catchFormalParameter() {
+    throw new Error("Not implemented");
+  }
+  catchType() {
+    throw new Error("Not implemented");
+  }
+  finally() {
+    throw new Error("Not implemented");
+  }
+  tryWithResourcesStatement() {
+    throw new Error("Not implemented");
+  }
+  resourceSpecification() {
+    throw new Error("Not implemented");
+  }
+  resourceList() {
+    throw new Error("Not implemented");
+  }
+  resource() {
+    throw new Error("Not implemented");
+  }
+  yieldStatement() {
+    throw new Error("Not implemented");
+  }
+  variableAccess() {
+    throw new Error("Not implemented");
+  }
+  lambdaExpression() {
+    throw new Error("Not implemented");
+  }
+  lambdaParameters() {
+    throw new Error("Not implemented");
+  }
+  lambdaParametersWithBraces() {
+    throw new Error("Not implemented");
+  }
+  lambdaParameterList() {
+    throw new Error("Not implemented");
+  }
+  conciseLambdaParameterList() {
+    throw new Error("Not implemented");
+  }
+  normalLambdaParameterList() {
+    throw new Error("Not implemented");
+  }
+  normalLambdaParameter() {
+    throw new Error("Not implemented");
+  }
+  regularLambdaParameter() {
+    throw new Error("Not implemented");
+  }
+  lambdaParameterType() {
+    throw new Error("Not implemented");
+  }
+  conciseLambdaParameter() {
+    throw new Error("Not implemented");
+  }
+  lambdaBody() {
+    throw new Error("Not implemented");
+  }
+  unaryExpressionNotPlusMinus() {
+    throw new Error("Not implemented");
+  }
+  primarySuffix() {
+    throw new Error("Not implemented");
+  }
+  parenthesisExpression() {
+    throw new Error("Not implemented");
+  }
+  castExpression() {
+    throw new Error("Not implemented");
+  }
+  primitiveCastExpression() {
+    throw new Error("Not implemented");
+  }
+  referenceTypeCastExpression() {
+    throw new Error("Not implemented");
+  }
+  newExpression() {
+    throw new Error("Not implemented");
+  }
+  unqualifiedClassInstanceCreationExpression() {
+    throw new Error("Not implemented");
+  }
+  classOrInterfaceTypeToInstantiate() {
+    throw new Error("Not implemented");
+  }
+  typeArgumentsOrDiamond() {
+    throw new Error("Not implemented");
+  }
+  diamond() {
+    throw new Error("Not implemented");
+  }
+  methodInvocationSuffix() {
+    throw new Error("Not implemented");
+  }
+  argumentList() {
+    throw new Error("Not implemented");
+  }
+  arrayCreationExpression() {
+    throw new Error("Not implemented");
+  }
+  arrayCreationExpressionWithoutInitializerSuffix() {
+    throw new Error("Not implemented");
+  }
+  arrayCreationWithInitializerSuffix() {
+    throw new Error("Not implemented");
+  }
+  dimExprs() {
+    throw new Error("Not implemented");
+  }
+  dimExpr() {
+    throw new Error("Not implemented");
+  }
+  classLiteralSuffix() {
+    throw new Error("Not implemented");
+  }
+  arrayAccessSuffix() {
+    throw new Error("Not implemented");
+  }
+  methodReferenceSuffix() {
+    throw new Error("Not implemented");
+  }
+  templateArgument() {
+    throw new Error("Not implemented");
+  }
+  template() {
+    throw new Error("Not implemented");
+  }
+  stringTemplate() {
+    throw new Error("Not implemented");
+  }
+  textBlockTemplate() {
+    throw new Error("Not implemented");
+  }
+  embeddedExpression() {
+    throw new Error("Not implemented");
+  }
+  pattern() {
+    throw new Error("Not implemented");
+  }
+  typePattern() {
+    throw new Error("Not implemented");
+  }
+  recordPattern() {
+    throw new Error("Not implemented");
+  }
+  componentPatternList() {
+    throw new Error("Not implemented");
+  }
+  componentPattern() {
+    throw new Error("Not implemented");
+  }
+  matchAllPattern() {
+    throw new Error("Not implemented");
+  }
+  guard() {
+    throw new Error("Not implemented");
+  }
+  isRefTypeInMethodRef() {
+    throw new Error("Not implemented");
+  }
 }
