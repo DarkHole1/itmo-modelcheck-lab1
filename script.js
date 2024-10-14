@@ -203,40 +203,6 @@ async function analyzeCode(code, methodsEl, graphEl, outputEl) {
     opt.innerText = method.name;
     methodsEl.appendChild(opt);
   }
-
-  let flowchartCode = `flowchart TD\n`;
-  let stack = [
-    {
-      parentId: 0,
-      parent: "",
-      node: ast,
-    },
-  ];
-  let i = 0;
-  while (stack.length != 0) {
-    const { node, parent, parentId } = stack.shift();
-
-    const current = `${parent}.${node.name}`;
-    const currentId = i++;
-    const name = node.name ?? (node.image || `EMPTY`);
-    flowchartCode += `${currentId}["${name.replace(/"/g, "#quot;")}"]\n`;
-    if (parent) {
-      flowchartCode += `${parentId} --> ${currentId}\n`;
-    }
-    if (!("tokenType" in node)) {
-      stack = stack.concat(
-        Object.values(node.children)
-          .flat()
-          .map((node) => ({ node, parent: current, parentId: currentId }))
-      );
-    }
-  }
-
-  graphEl.value = flowchartCode;
-  return;
-  const { svg, bindFunctions } = await mermaid.render("ast", flowchartCode);
-  outputEl.innerHTML = svg;
-  bindFunctions?.(outputEl);
 }
 
 async function analyzeMethod(method, graphEl, outputEl, codeEl) {
