@@ -187,6 +187,11 @@ class MethodsFinder extends javaParser.BaseJavaCstVisitorWithDefaults {
 
 async function analyzeCode(code, methodsEl, graphEl, outputEl) {
   ast = javaParser.parse(code.value);
+  console.log(ast);
+
+  const builder = new BuildAst();
+  // builder.visit(ast);
+  // console.log(builder.types);
 
   const methodsFinder = new MethodsFinder();
   methodsFinder.visit(ast);
@@ -699,4 +704,928 @@ function findUsedIdentifiers(ast) {
   const extractor = new UsedIdentifierExtractor();
   extractor.visit(ast);
   return extractor.customResult;
+}
+
+class BuildAst extends javaParser.BaseJavaCstVisitor {
+  constructor() {
+    super();
+    this.types = [];
+    this.validateVisitor();
+  }
+
+  compilationUnit(ctx) {
+    if (ctx.ordinaryCompilationUnit) {
+      this.visit(ordinaryCompilationUnit);
+    }
+    // Not interested in modular compilation unit
+  }
+
+  ordinaryCompilationUnit(ctx) {
+    // Not interested in package declaration
+    // Not interestef in import declaration
+    for (const type of ctx.typeDeclaration) {
+      this.visit(type);
+      // TODO
+    }
+  }
+
+  typeDeclaration(ctx) {
+    if (ctx.Semicolon) {
+      return null;
+    }
+
+    if (ctx.classDeclaration) {
+      return this.visit(ctx.classDeclaration);
+    }
+
+    if (ctx.interfaceDeclaration) {
+      return this.visit(ctx.interfaceDeclaration);
+    }
+
+    if (ctx.fieldDeclaraion) {
+      return this.visit(ctx.fieldDeclaraion);
+    }
+
+    if (ctx.methodDeclaration) {
+      return this.visit(ctx.methodDeclaration);
+    }
+  }
+
+  classDeclaration(ctx) {
+    // Not interested in modifiers
+    if (ctx.normalClassDeclaration) {
+      return {
+        type: "normal",
+        contents: this.visit(ctx.normalClassDeclaration),
+      };
+    }
+
+    if (ctx.enumDeclaration) {
+      return {
+        type: "enum",
+        ...this.visit(ctx.enumDeclaration),
+      };
+    }
+
+    if (ctx.recordDeclaration) {
+      return {
+        type: "record",
+        ...this.visit(ctx.recordDeclaration),
+      };
+    }
+  }
+
+  normalClassDeclaration(ctx) {
+    const name = this.visit(ctx.typeIdentifier);
+    const typeParameters = ctx.typeParameters
+      ? this.visit(ctx.typeParameters)
+      : [];
+    // const extends_ = ctx.classExtends ? this.visit(ctx.classExtends) : null
+    // const implements_ = ctx.classImplements ? this.visit(ctx.classImplements) : []
+    // Not interested in permits
+    const body = this.visit(ctx.classBody);
+
+    return {
+      name,
+      typeParameters,
+      body,
+    };
+  }
+
+  typeParameters(ctx) {
+    return ctx.visit(ctx.typeParameterList);
+  }
+
+  typeParameterList(ctx) {
+    return ctx.typeParameter.map((par) => this.visit(par));
+  }
+
+  classExtends(ctx) {
+    return this.visit(ctx.classType);
+  }
+
+  classImplements(ctx) {
+    return this.visit(ctx.interfaceTypeList);
+  }
+
+  interfaceTypeList(ctx) {
+    return ctx.interfaceType.map((i) => this.visit(i));
+  }
+
+  classBody(ctx) {
+    return ctx.classBodyDeclaration.map((d) => this.visit(d));
+  }
+
+  classBodyDeclaration(ctx) {
+    if (ctx.classMemberDeclaration) {
+      return this.visit(ctx.classsMemberDeclaration);
+    }
+
+    // Not interested in not methods
+    return null;
+  }
+
+  classMemberDeclaration(ctx) {
+    if (ctx.methodDeclaration) {
+      return this.visit(ctx.methodDeclaration);
+    }
+
+    if (ctx.classDeclaration) {
+      return this.visit(ctx.classDeclaration);
+    }
+
+    if (ctx.interfaceDeclaration) {
+      return this.visit(ctx.interfaceDeclaration);
+    }
+
+    // Not interested in not methods
+    return null;
+  }
+
+  variableDeclaratorList(ctx) {
+    return ctx.variableDeclarator.map((v) => this.visit(v));
+  }
+
+  variableDeclarator(ctx) {
+    const id = this.visit(ctx.variableDeclaratorId);
+    if (ctx.variableInitializer) {
+      return {
+        id,
+        init: this.visit(ctx.variableInitializer),
+      };
+    }
+    return {
+      id,
+    };
+  }
+
+  variableDeclaratorId(ctx) {
+    if (ctx.Identifier) {
+      // Ignore dims
+      return ctx.Identifier.image;
+    }
+
+    if (ctx.Underscore) {
+      return "_";
+    }
+  }
+
+  variableInitializer(ctx) {
+    if (ctx.expression) {
+      return this.visit(ctx.expression);
+    }
+
+    // Not interested in array initializer
+    throw new Exception("Not implemented");
+  }
+
+  unannType(ctx) {
+    if (ctx.unannPrimitiveTypeWithOptionalDimsSuffix) {
+      return this.visit(ctx.unannPrimitiveTypeWithOptionalDimsSuffix);
+    }
+
+    if (ctx.unannReferenceType) {
+      return this.visit(ctx.unannReferenceType);
+    }
+  }
+
+  unannPrimitiveTypeWithOptionalDimsSuffix(ctx) {
+    return this.visit(ctx.unannPrimitiveType);
+    // Ignore dims
+  }
+
+  unannPrimitiveType(ctx) {
+    if (ctx.numericType) {
+      return this.visit(ctx.numericType);
+    }
+
+    if (ctx.Boolean) {
+      return ["boolean"];
+    }
+  }
+
+  unannReferenceType(ctx) {
+    return this.visit(ctx.unannClassOrInterfaceType);
+    // Ignore dims
+  }
+
+  unannClassOrInterfaceType(ctx) {
+    return this.visit(ctx.unannClassType);
+  }
+
+  unannClassType(ctx) {
+    // Hard to differentiate between type arguments, let's ignore them
+    return ctx.Identifier.map((i) => i.image);
+  }
+
+  methodDeclaration(ctx) {
+    // Ignore modifiers
+    return {
+      ...this.visit(ctx.methodHeader),
+      ...this.visit(ctx.methodBody),
+    };
+  }
+
+  methodHeader(ctx) {
+    // Ignore type parameters
+    const result = this.visit(ctx.result);
+    const declarator = this.visit(ctx.methodDeclarator);
+    // Ignore throws
+    return {
+      result,
+      ...declarator,
+    };
+  }
+
+  result(ctx) {
+    if (ctx.unannType) {
+      return this.visit(ctx.unannType);
+    }
+
+    if (ctx.Void) {
+      return "void";
+    }
+  }
+
+  methodDeclarator(ctx) {
+    const name = ctx.Identifier.image;
+    // Ignore receiver parameter
+    const parameters = this.visit(ctx.formalParameterList);
+    // Ignore dims
+    return { name, parameters };
+  }
+
+  formalParameterList(ctx) {
+    return this.formalParameter.map((p) => this.visit(p));
+  }
+
+  formalParameter(ctx) {
+    if (ctx.variableParaRegularParameter) {
+      return this.visit(ctx.variableParaRegularParameter);
+    }
+    // Ignore variable arity parameters
+  }
+
+  variableParaRegularParameter(ctx) {
+    // Ignore modifiers
+    const type = this.visit(ctx.unannType);
+    const name = this.visit(ctx.variableDeclaratorId);
+    return { name, type };
+  }
+
+  methodBody(ctx) {
+    if (ctx.block) {
+      return this.visit(ctx.block);
+    }
+
+    if (ctx.Semicolon) {
+      return [];
+    }
+  }
+
+  block(ctx) {
+    return this.visit(ctx.blockStatements);
+  }
+
+  blockStatements(ctx) {
+    return ctx.blockStatement.map((b) => this.visit(b));
+  }
+
+  blockStatement(ctx) {
+    if (ctx.localVariableDeclarationStatement) {
+      return {
+        declaration: this.visit(ctx.localVariableDeclaration),
+      };
+    }
+
+    // Ignore nested classes interfaces
+
+    if (ctx.statement) {
+      return {
+        statement: this.visit(ctx.statement),
+      };
+    }
+  }
+
+  localVariableDeclarationStatement(ctx) {
+    return this.visit(ctx.localVariableDeclaration);
+  }
+
+  localVariableDeclaration(ctx) {
+    // Ignore modifier
+    const type = this.visit(ctx.localVariableType);
+    const variables = this.visit(ctx.localVariableDeclaratorList);
+    return {
+      type,
+      variables,
+    };
+  }
+
+  localVariableType(ctx) {
+    if (ctx.unannType) {
+      return this.visit(ctx.unannType);
+    }
+
+    if (ctx.Var) {
+      return ["var"];
+    }
+  }
+
+  statement(ctx) {
+    if (ctx.statementWithoutTrailingSubstatement) {
+      return this.visit(statementWithoutTrailingSubstatement);
+    }
+
+    if (ctx.labeledStatement) {
+      return this.visit(ctx.labeledStatement);
+    }
+
+    if (ctx.ifStatement) {
+      return this.visit(ctx.ifStatement);
+    }
+
+    if (ctx.whileStatement) {
+      return this.visit(ctx.whileStatement);
+    }
+
+    if (ctx.forStatement) {
+      return this.visit(ctx.forStatement);
+    }
+  }
+
+  statementWithoutTrailingSubstatement(ctx) {
+    if (ctx.block) {
+      return {
+        type: "block",
+        block: this.visit(ctx.block),
+      };
+    }
+
+    // Ignore yield
+
+    if (ctx.emptyStatement) {
+      return null;
+    }
+
+    if (ctx.expressionStatement) {
+      return this.visit(ctx.expressionStatement);
+    }
+
+    // Ignore assert statement
+
+    if (ctx.switchStatement) {
+      return this.visit(ctx.switchStatement);
+    }
+
+    if (ctx.doStatement) {
+      return this.visit(ctx.doStatement);
+    }
+
+    if (ctx.breakStatement) {
+      return this.visit(ctx.breakStatement);
+    }
+
+    if (ctx.continueStatement) {
+      return this.visit(ctx.continueStatement);
+    }
+
+    if (ctx.returnStatement) {
+      return this.visit(ctx.returnStatement);
+    }
+
+    // Ignore synchronized, throw, try/catch
+  }
+
+  labeledStatement(ctx) {
+    const label = this.visit(ctx.Identifier);
+    const statement = this.visit(ctx.statement);
+    return { label, ...statement };
+  }
+
+  expressionStatement(ctx) {
+    return this.visit(ctx.statementExpression);
+  }
+
+  statementExpression(ctx) {
+    return {
+      type: "expression",
+      expression: this.visit(ctx.expression),
+    };
+  }
+
+  ifStatement(ctx) {
+    const cond = this.visit(ctx.expression);
+    const then = this.visit(ctx.statement[0]);
+    const othewise =
+      ctx.statement.length > 1 ? this.visit(ctx.statement[1]) : null;
+    return {
+      type: "if",
+      cond,
+      then,
+      othewise,
+    };
+  }
+
+  switchStatement(ctx) {
+    const expression = this.visit(ctx.expression);
+    const cases = this.visit(ctx.switchBlock);
+    return {
+      type: "switch",
+      expression,
+      cases,
+    };
+  }
+
+  switchBlock(ctx) {
+    // Ignore switch rules
+    if (ctx.switchBlockStatementGroup) {
+      return this.visit(ctx.switchBlockStatementGroup);
+    }
+  }
+
+  switchBlockStatementGroup(ctx) {
+    const label = this.visit(ctx.switchLabel);
+    const block = ctx.blockStatements ? this.visit(ctx.blockStatements) : null;
+    return { label, block };
+  }
+
+  switchLabel(ctx) {
+    if (ctx.Case) {
+      // Ignore all cases except constants
+      return {
+        type: "constant",
+        constants: ctx.caseConstant.map((c) => this.visit(c)),
+      };
+    }
+
+    if (ctx.Default) {
+      return {
+        type: "default",
+      };
+    }
+  }
+
+  caseConstant(ctx) {
+    return this.visit(ctx.conditionalExpression);
+  }
+
+  whileStatement(ctx) {
+    const cond = this.visit(ctx.expression);
+    const statement = this.visit(ctx.statement);
+    return { type: "while", cond, statement };
+  }
+
+  doStatement(ctx) {
+    const cond = this.visit(ctx.expression);
+    const statement = this.visit(ctx.statement);
+    return { type: "do", cond, statement };
+  }
+
+  forStatement(ctx) {
+    if (ctx.basicForStatement) {
+      return this.visit(ctx.basicForStatement);
+    }
+
+    // Ignore extended form
+  }
+
+  basicForStatement(ctx) {
+    const init = ctx.forInit ? this.visit(ctx.forInit) : null;
+    const cond = ctx.expression ? this.visit(ctx.expression) : null;
+    const update = ctx.forUpdate ? this.visit(ctx.forUpdate) : null;
+    return {
+      type: "basicFor",
+      init,
+      cond,
+      update,
+    };
+  }
+
+  forInit(ctx) {
+    if (ctx.localVariableDeclaration) {
+      return this.visit(ctx.localVariableDeclaration);
+    }
+
+    if (ctx.statementExpressionList) {
+      return this.visit(ctx.statementExpressionList);
+    }
+  }
+
+  forUpdate(ctx) {
+    return this.visit(ctx.statementExpressionList);
+  }
+
+  statementExpressionList(ctx) {
+    return ctx.statementExpression.map((s) => this.visit(s));
+  }
+
+  breakStatement(ctx) {
+    const to = ctx.Identifier ? ctx.Identifier.image : null;
+    return { type: "break", to };
+  }
+
+  continueStatement(ctx) {
+    const to = ctx.Identifier ? ctx.Identifier.image : null;
+    return { type: "continue", to };
+  }
+
+  returnStatement(ctx) {
+    const expression = ctx.expression ? this.visit(ctx.expression) : null;
+    return { type: "return", expression };
+  }
+
+  literal(ctx) {
+    if (ctx.integerLiteral) {
+      return this.visit(ctx.integerLiteral);
+    }
+
+    if (ctx.floatingPointLiteral) {
+      return this.visit(ctx.floatingPointLiteral);
+    }
+
+    if (ctx.booleanLiteral) {
+      return this.visit(ctx.booleanLiteral);
+    }
+
+    if (ctx.CharLiteral) {
+      return {
+        type: "literal",
+        literal: "char",
+        image: ctx.CharLiteral.image,
+      };
+    }
+
+    if (ctx.TextBlock) {
+      return {
+        type: "literal",
+        literal: "textblock",
+        image: ctx.TextBlock.image,
+      };
+    }
+
+    if (ctx.StringLiteral) {
+      return {
+        type: "literal",
+        literal: "string",
+        image: ctx.StringLiteral.image,
+      };
+    }
+
+    if (ctx.Null) {
+      return {
+        type: "literal",
+        literal: "null",
+        image: null,
+      };
+    }
+  }
+
+  integerLiteral(ctx) {
+    let image = null;
+
+    if (ctx.DecimalLiteral) {
+      image = ctx.DecimalLiteral.image;
+    }
+
+    if (ctx.HexLiteral) {
+      image = ctx.HexLiteral.image;
+    }
+
+    if (ctx.OctalLiteral) {
+      image = ctx.OctalLiteral.image;
+    }
+
+    if (ctx.BinaryLiteral) {
+      image = ctx.BinaryLiteral.image;
+    }
+
+    return {
+      type: "literal",
+      literal: "integer",
+      image,
+    };
+  }
+
+  floatingPointLiteral(ctx) {
+    if (ctx.FloatLiteral) {
+      return {
+        type: "literal",
+        literal: "float",
+        image: ctx.FloatLiteral.image,
+      };
+    }
+
+    if (ctx.HexFloatLiteral) {
+      return {
+        type: "literal",
+        literal: "float",
+        image: ctx.HexFloatLiteral.image,
+      };
+    }
+  }
+
+  booleanLiteral(ctx) {
+    return {
+      type: "literal",
+      literal: "boolean",
+      image: (ctx.True ?? ctx.False).image,
+    };
+  }
+
+  moduleName(ctx) {
+    return ctx.Identifier.map((i) => i.image);
+  }
+
+  packageName(ctx) {
+    return ctx.Identifier.map((i) => i.image);
+  }
+
+  typeName(ctx) {
+    return ctx.Identifier.map((i) => i.image);
+  }
+
+  expressionName(ctx) {
+    return ctx.Identifier.map((i) => i.image);
+  }
+
+  methodName(ctx) {
+    return ctx.Identifier[0].image;
+  }
+
+  packageOrTypeName(ctx) {
+    return ctx.Identifier.map((i) => i.image);
+  }
+
+  ambiguousName(ctx) {
+    return ctx.Identifier.map((i) => i.image);
+  }
+
+  expression(ctx) {
+    // Not interested in lambdas
+    if (ctx.conditionalExpression) {
+      return this.visit(ctx.conditionalExpression);
+    }
+  }
+
+  conditionalExpression(ctx) {
+    if (ctx.QuestionMark) {
+      return {
+        type: "ternary",
+        cond: this.visit(ctx.binaryExpression),
+        then: this.visit(ctx.expression[0]),
+        otherwise: this.visit(ctx.expression[1]),
+      };
+    }
+
+    return this.visit(ctx.binaryExpression);
+  }
+
+  binaryExpression(ctx) {
+    // Ignore instanceof
+    if (ctx.AssignmentOperator) {
+      return {
+        type: "assignment",
+        op: ctx.AssignmentOperator.image,
+        left: this.visit(ctx.unaryExpression[0]),
+        right: this.visit(ctx.expression),
+      };
+    }
+
+    if (ctx.unaryExpression.length > 1) {
+      // This won't work with shifts operators
+      return {
+        type: "binary",
+        ops: ctx.BinaryOperator.concat(ctx.Less)
+          .concat(ctx.Greater)
+          .sort((a, b) => a.startOffset - b.startOffset)
+          .map((e) => e.image),
+        exps: ctx.unaryExpression.map((u) => this.visit(u)),
+      };
+    }
+
+    return this.visit(ctx.unaryExpression[0]);
+  }
+
+  unaryExpression(ctx) {
+    const pre = ctx.UnaryPrefixOperator
+      ? ctx.UnaryPrefixOperator.map((u) => u.image)
+      : [];
+    const post = ctx.UnaryPostfixOperator
+      ? ctx.UnaryPostfixOperator.map((u) => u.image)
+      : [];
+    const primary = this.visit(ctx.primary);
+
+    if (pre.length > 0 || post.length > 0) {
+      return {
+        type: "unary",
+        pre,
+        post,
+        exp: primary,
+      };
+    }
+  }
+
+  primary(ctx) {
+    // Ignore suffix
+    return this.visit(ctx.primaryPrefix);
+  }
+
+  primaryPrefix(ctx) {
+    // Not interested in rest
+    if (ctx.literal) {
+      return this.visit(ctx.literal);
+    }
+
+    if (ctx.fqnOrRefType) {
+      return this.visit(ctx.fqnOrRefType);
+    }
+  }
+
+  fqnOrRefType(ctx) {
+    const first = this.visit(ctx.fqnOrRefTypePartFirst);
+    const rest = ctx.fqnOrRefTypePartRest
+      ? ctx.fqnOrRefTypePartRest.map((p) => this.visit(p))
+      : [];
+    return {
+      type: "fqn",
+      fqn: [first].concat(rest),
+    };
+  }
+
+  fqnOrRefTypePartRest(ctx) {
+    // Ignore rest
+    return this.visit(ctx.fqnOrRefTypePartCommon);
+  }
+
+  fqnOrRefTypePartCommon(ctx) {
+    // Ignore rest
+    return ctx.Identifier.image;
+  }
+
+  fqnOrRefTypePartFirst(ctx) {
+    // Ignore rest
+    return this.visit(ctx.fqnOrRefTypePartCommon);
+  }
+
+  // Unimplemented
+  typeIdentifier() { throw new Exception("Not implemented") }
+	primitiveType() { throw new Exception("Not implemented") }
+	numericType() { throw new Exception("Not implemented") }
+	integralType() { throw new Exception("Not implemented") }
+	floatingPointType() { throw new Exception("Not implemented") }
+	referenceType() { throw new Exception("Not implemented") }
+	classOrInterfaceType() { throw new Exception("Not implemented") }
+	classType() { throw new Exception("Not implemented") }
+	interfaceType() { throw new Exception("Not implemented") }
+	typeVariable() { throw new Exception("Not implemented") }
+	dims() { throw new Exception("Not implemented") }
+	typeParameter() { throw new Exception("Not implemented") }
+	typeParameterModifier() { throw new Exception("Not implemented") }
+	typeBound() { throw new Exception("Not implemented") }
+	additionalBound() { throw new Exception("Not implemented") }
+	typeArguments() { throw new Exception("Not implemented") }
+	typeArgumentList() { throw new Exception("Not implemented") }
+	typeArgument() { throw new Exception("Not implemented") }
+	wildcard() { throw new Exception("Not implemented") }
+	wildcardBounds() { throw new Exception("Not implemented") }
+	classModifier() { throw new Exception("Not implemented") }
+	classPermits() { throw new Exception("Not implemented") }
+	fieldDeclaration() { throw new Exception("Not implemented") }
+	fieldModifier() { throw new Exception("Not implemented") }
+	unannInterfaceType() { throw new Exception("Not implemented") }
+	unannTypeVariable() { throw new Exception("Not implemented") }
+	methodModifier() { throw new Exception("Not implemented") }
+	receiverParameter() { throw new Exception("Not implemented") }
+	variableArityParameter() { throw new Exception("Not implemented") }
+	variableModifier() { throw new Exception("Not implemented") }
+	throws() { throw new Exception("Not implemented") }
+  exceptionTypeList() { throw new Exception("Not implemented") }
+	exceptionType() { throw new Exception("Not implemented") }
+	instanceInitializer() { throw new Exception("Not implemented") }
+	staticInitializer() { throw new Exception("Not implemented") }
+	constructorDeclaration() { throw new Exception("Not implemented") }
+	constructorModifier() { throw new Exception("Not implemented") }
+	constructorDeclarator() { throw new Exception("Not implemented") }
+	simpleTypeName() { throw new Exception("Not implemented") }
+	constructorBody() { throw new Exception("Not implemented") }
+	explicitConstructorInvocation() { throw new Exception("Not implemented") }
+	unqualifiedExplicitConstructorInvocation() { throw new Exception("Not implemented") }
+	qualifiedExplicitConstructorInvocation() { throw new Exception("Not implemented") }
+	enumDeclaration() { throw new Exception("Not implemented") }
+	enumBody() { throw new Exception("Not implemented") }
+	enumConstantList() { throw new Exception("Not implemented") }
+	enumConstant() { throw new Exception("Not implemented") }
+	enumConstantModifier() { throw new Exception("Not implemented") }
+	enumBodyDeclarations() { throw new Exception("Not implemented") }
+	recordDeclaration() { throw new Exception("Not implemented") }
+	recordHeader() { throw new Exception("Not implemented") }
+	recordComponentList() { throw new Exception("Not implemented") }
+	recordComponent() { throw new Exception("Not implemented") }
+	variableArityRecordComponent() { throw new Exception("Not implemented") }
+	recordComponentModifier() { throw new Exception("Not implemented") }
+	recordBody() { throw new Exception("Not implemented") }
+	recordBodyDeclaration() { throw new Exception("Not implemented") }
+	compactConstructorDeclaration() { throw new Exception("Not implemented") }
+	isDims() { throw new Exception("Not implemented") }
+	modularCompilationUnit() { throw new Exception("Not implemented") }
+	packageDeclaration() { throw new Exception("Not implemented") }
+	packageModifier() { throw new Exception("Not implemented") }
+	importDeclaration() { throw new Exception("Not implemented") }
+	moduleDeclaration() { throw new Exception("Not implemented") }
+	moduleDirective() { throw new Exception("Not implemented") }
+	requiresModuleDirective() { throw new Exception("Not implemented") }
+	exportsModuleDirective() { throw new Exception("Not implemented") }
+	opensModuleDirective() { throw new Exception("Not implemented") }
+	usesModuleDirective() { throw new Exception("Not implemented") }
+	providesModuleDirective() { throw new Exception("Not implemented") }
+	requiresModifier() { throw new Exception("Not implemented") }
+	interfaceDeclaration() { throw new Exception("Not implemented") }
+	normalInterfaceDeclaration() { throw new Exception("Not implemented") }
+	interfaceModifier() { throw new Exception("Not implemented") }
+	interfaceExtends() { throw new Exception("Not implemented") }
+	interfacePermits() { throw new Exception("Not implemented") }
+	interfaceBody() { throw new Exception("Not implemented") }
+	interfaceMemberDeclaration() { throw new Exception("Not implemented") }
+	constantDeclaration() { throw new Exception("Not implemented") }
+	constantModifier() { throw new Exception("Not implemented") }
+	interfaceMethodDeclaration() { throw new Exception("Not implemented") }
+	interfaceMethodModifier() { throw new Exception("Not implemented") }
+	annotationInterfaceDeclaration() { throw new Exception("Not implemented") }
+	annotationInterfaceBody() { throw new Exception("Not implemented") }
+	annotationInterfaceMemberDeclaration() { throw new Exception("Not implemented") }
+	annotationInterfaceElementDeclaration() { throw new Exception("Not implemented") }
+	annotationInterfaceElementModifier() { throw new Exception("Not implemented") }
+	defaultValue() { throw new Exception("Not implemented") }
+	annotation() { throw new Exception("Not implemented") }
+	elementValuePairList() { throw new Exception("Not implemented") }
+	elementValuePair() { throw new Exception("Not implemented") }
+	elementValue() { throw new Exception("Not implemented") }
+	elementValueArrayInitializer() { throw new Exception("Not implemented") }
+	elementValueList() { throw new Exception("Not implemented") }
+	arrayInitializer() { throw new Exception("Not implemented") }
+	variableInitializerList() { throw new Exception("Not implemented") }
+	emptyStatement() { throw new Exception("Not implemented") }
+	assertStatement() { throw new Exception("Not implemented") }
+	switchRule() { throw new Exception("Not implemented") }
+	casePattern() { throw new Exception("Not implemented") }
+	enhancedForStatement() { throw new Exception("Not implemented") }
+	throwStatement() { throw new Exception("Not implemented") }
+	synchronizedStatement() { throw new Exception("Not implemented") }
+	tryStatement() { throw new Exception("Not implemented") }
+	catches() { throw new Exception("Not implemented") }
+	catchClause() { throw new Exception("Not implemented") }
+	catchFormalParameter() { throw new Exception("Not implemented") }
+	catchType() { throw new Exception("Not implemented") }
+	finally() { throw new Exception("Not implemented") }
+	tryWithResourcesStatement() { throw new Exception("Not implemented") }
+	resourceSpecification() { throw new Exception("Not implemented") }
+	resourceList() { throw new Exception("Not implemented") }
+	resource() { throw new Exception("Not implemented") }
+	yieldStatement() { throw new Exception("Not implemented") }
+	variableAccess() { throw new Exception("Not implemented") }
+	lambdaExpression() { throw new Exception("Not implemented") }
+	lambdaParameters() { throw new Exception("Not implemented") }
+	lambdaParametersWithBraces() { throw new Exception("Not implemented") }
+	lambdaParameterList() { throw new Exception("Not implemented") }
+	conciseLambdaParameterList() { throw new Exception("Not implemented") }
+	normalLambdaParameterList() { throw new Exception("Not implemented") }
+	normalLambdaParameter() { throw new Exception("Not implemented") }
+	regularLambdaParameter() { throw new Exception("Not implemented") }
+	lambdaParameterType() { throw new Exception("Not implemented") }
+	conciseLambdaParameter() { throw new Exception("Not implemented") }
+	lambdaBody() { throw new Exception("Not implemented") }
+	unaryExpressionNotPlusMinus() { throw new Exception("Not implemented") }
+	primarySuffix() { throw new Exception("Not implemented") }
+	parenthesisExpression() { throw new Exception("Not implemented") }
+	castExpression() { throw new Exception("Not implemented") }
+	primitiveCastExpression() { throw new Exception("Not implemented") }
+	referenceTypeCastExpression() { throw new Exception("Not implemented") }
+	newExpression() { throw new Exception("Not implemented") }
+	unqualifiedClassInstanceCreationExpression() { throw new Exception("Not implemented") }
+	classOrInterfaceTypeToInstantiate() { throw new Exception("Not implemented") }
+	typeArgumentsOrDiamond() { throw new Exception("Not implemented") }
+	diamond() { throw new Exception("Not implemented") }
+	methodInvocationSuffix() { throw new Exception("Not implemented") }
+	argumentList() { throw new Exception("Not implemented") }
+	arrayCreationExpression() { throw new Exception("Not implemented") }
+	arrayCreationExpressionWithoutInitializerSuffix() { throw new Exception("Not implemented") }
+	arrayCreationWithInitializerSuffix() { throw new Exception("Not implemented") }
+	dimExprs() { throw new Exception("Not implemented") }
+	dimExpr() { throw new Exception("Not implemented") }
+	classLiteralSuffix() { throw new Exception("Not implemented") }
+	arrayAccessSuffix() { throw new Exception("Not implemented") }
+	methodReferenceSuffix() { throw new Exception("Not implemented") }
+	templateArgument() { throw new Exception("Not implemented") }
+	template() { throw new Exception("Not implemented") }
+	stringTemplate() { throw new Exception("Not implemented") }
+	textBlockTemplate() { throw new Exception("Not implemented") }
+	embeddedExpression() { throw new Exception("Not implemented") }
+	pattern() { throw new Exception("Not implemented") }
+	typePattern() { throw new Exception("Not implemented") }
+	recordPattern() { throw new Exception("Not implemented") }
+	componentPatternList() { throw new Exception("Not implemented") }
+	componentPattern() { throw new Exception("Not implemented") }
+	matchAllPattern() { throw new Exception("Not implemented") }
+	guard() { throw new Exception("Not implemented") }
+	isRefTypeInMethodRef() { throw new Exception("Not implemented") }
 }
