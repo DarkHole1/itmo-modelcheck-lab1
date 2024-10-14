@@ -173,33 +173,28 @@ window.addEventListener("load", () => {
 let ast = null;
 let methods = [];
 
-class MethodsFinder extends javaParser.BaseJavaCstVisitorWithDefaults {
-  constructor() {
-    super();
-    this.customResult = [];
-    this.validateVisitor();
-  }
-
-  methodDeclaration(ctx) {
-    this.customResult.push(ctx);
-  }
-}
-
 async function analyzeCode(code, methodsEl, graphEl, outputEl) {
   ast = javaParser.parse(code.value);
   console.log(ast);
 
   const builder = new BuildAst();
   builder.visit(ast);
-  console.log(builder.types);
+  const types = builder.types;
+  console.log(types);
 
-  const methodsFinder = new MethodsFinder();
-  methodsFinder.visit(ast);
-  methods = methodsFinder.customResult.map((method) => ({
-    name: method.methodHeader[0].children.methodDeclarator[0].children
-      .Identifier[0].image,
-    value: method,
-  }));
+  methods = types.flatMap((t) => {
+    let meth;
+    if (t.type == "normal") {
+      console.log(t);
+      meth = t.body.filter(Boolean).map((b) => ({
+        ...b,
+        name: `${t.name}.${b.name}`,
+      }));
+    } else {
+      meth = [t];
+    }
+    return meth.filter((m) => m.type == "method");
+  });
 
   methodsEl.innerText = "";
   for (const [i, method] of methods.entries()) {
@@ -714,10 +709,10 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   }
 
   visit(to) {
-    if(!to) {
-      throw new Error("Visit undefined")
+    if (!to) {
+      throw new Error("Visit undefined");
     }
-    return super.visit(to)
+    return super.visit(to);
   }
 
   compilationUnit(ctx) {
@@ -763,7 +758,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
     if (ctx.normalClassDeclaration) {
       return {
         type: "normal",
-        contents: this.visit(ctx.normalClassDeclaration),
+        ...this.visit(ctx.normalClassDeclaration),
       };
     }
 
@@ -820,7 +815,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   }
 
   classBody(ctx) {
-    return ctx.classBodyDeclaration.map((d) => this.visit(d));
+    return (ctx.classBodyDeclaration ?? []).map((d) => this.visit(d));
   }
 
   classBodyDeclaration(ctx) {
@@ -928,7 +923,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   methodDeclaration(ctx) {
     // Ignore modifiers
     return {
-      type: 'method',
+      type: "method",
       ...this.visit(ctx.methodHeader),
       ...this.visit(ctx.methodBody),
     };
@@ -936,7 +931,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
   methodHeader(ctx) {
     // Ignore type parameters
-    console.log(ctx)
+    console.log(ctx);
     const result = this.visit(ctx.result);
     const declarator = this.visit(ctx.methodDeclarator);
     // Ignore throws
@@ -959,7 +954,9 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   methodDeclarator(ctx) {
     const name = ctx.Identifier[0].image;
     // Ignore receiver parameter
-    const parameters = ctx.formalParameterList ? this.visit(ctx.formalParameterList) : [];
+    const parameters = ctx.formalParameterList
+      ? this.visit(ctx.formalParameterList)
+      : [];
     // Ignore dims
     return { name, parameters };
   }
@@ -993,7 +990,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   }
 
   block(ctx) {
-    return this.visit(ctx.blockStatements);
+    return ctx.blockStatements ? this.visit(ctx.blockStatements) : [];
   }
 
   blockStatements(ctx) {
@@ -1003,7 +1000,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
   blockStatement(ctx) {
     if (ctx.localVariableDeclarationStatement) {
       return {
-        type: 'declaration',
+        type: "declaration",
         declaration: this.visit(ctx.localVariableDeclarationStatement),
       };
     }
@@ -1012,7 +1009,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
     if (ctx.statement) {
       return {
-        type: 'statement',
+        type: "statement",
         statement: this.visit(ctx.statement),
       };
     }
@@ -1435,7 +1432,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
       };
     }
 
-    return primary
+    return primary;
   }
 
   primary(ctx) {
