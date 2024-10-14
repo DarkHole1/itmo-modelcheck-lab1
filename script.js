@@ -5,6 +5,15 @@ mermaid.initialize();
 
 const DEFAULT_CODES = [
   {
+    name: "Unvar",
+    value: `
+int f() {
+  int a = 1;
+  a = 1;
+}
+`,
+  },
+  {
     name: "Dataflow example",
     value: `
 public class DFExample{
@@ -166,7 +175,7 @@ window.addEventListener("load", () => {
     analyzeCode(codeEl, methodsEl, graphEl, outputEl)
   );
   analyzeMethodEl.addEventListener("click", () =>
-    analyzeMethod(methods[methodsEl.value].value, graphEl, outputEl, codeEl)
+    analyzeMethod(methods[methodsEl.value], graphEl, outputEl, codeEl)
   );
 });
 
@@ -203,23 +212,25 @@ async function analyzeCode(code, methodsEl, graphEl, outputEl) {
     opt.innerText = method.name;
     methodsEl.appendChild(opt);
   }
+
+  graphEl.value = JSON.stringify(types, null, 2);
 }
 
 async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   outputEl.innerText = "";
   graphEl.value = "";
 
-  const fnName =
-    method.methodHeader[0].children.methodDeclarator[0].children.Identifier[0]
-      .image;
-  const args =
-    method.methodHeader[0].children.methodDeclarator[0].children.formalParameterList[0].children.formalParameter.map(
-      (p) =>
-        p.children.variableParaRegularParameter[0].children
-          .variableDeclaratorId[0].children.Identifier[0].image
-    );
+  console.log(method);
+  const fnName = method.name;
+  const args = method.parameters.map((p) => p.name);
+  let statements = method.body;
+  console.log(statements);
+  statements = removeDeclarations(statements);
+  console.log(statements);
+  return;
+
   console.log(args);
-  const statements = extractStatements(method.methodBody);
+  // const statements = extractStatements(method.methodBody);
 
   console.log(statements);
   let i = 1;
@@ -595,6 +606,35 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   bindFunctions?.(outputEl);
 }
 
+function removeDeclarations(s) {
+  return s.flatMap((s) => {
+    if (s.type != "declaration") {
+      return [s];
+    }
+    return s.declaration.variables.flatMap((v) => {
+      if (!v.init) return [];
+
+      return [
+        {
+          type: "statement",
+          statement: {
+            type: "expression",
+            expression: {
+              type: "assignment",
+              op: "=",
+              left: {
+                type: "fqn",
+                fqn: [v.name],
+              },
+              right: v.init,
+            },
+          },
+        },
+      ];
+    });
+  });
+}
+
 class StatementsExtractor extends javaParser.BaseJavaCstVisitorWithDefaults {
   constructor() {
     super();
@@ -947,7 +987,7 @@ class BuildAst extends javaParser.BaseJavaCstVisitor {
 
   methodBody(ctx) {
     if (ctx.block) {
-      return this.visit(ctx.block);
+      return { body: this.visit(ctx.block) };
     }
 
     if (ctx.Semicolon) {
