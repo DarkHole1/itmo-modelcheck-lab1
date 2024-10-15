@@ -39,7 +39,8 @@ int fullFor() {
   return a;
 }
 `,
-  }, {
+  },
+  {
     name: "If",
     value: `
 int ifExample() {
@@ -52,7 +53,8 @@ int ifExample() {
   return b;
 }
 `,
-  }, {
+  },
+  {
     name: "Unreachable code",
     value: `
 int unreachable() {
@@ -61,7 +63,7 @@ int unreachable() {
   return b;
 }
 `,
-  }, 
+  },
 ];
 
 window.addEventListener("load", () => {
@@ -301,6 +303,11 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
               ),
               type: "ordinary",
             });
+            findAssignments(
+              forInit.children.statementExpressionList[0].children
+                .statementExpression[0].children.expression[0],
+              forInitId
+            );
             parents = [
               {
                 id: forInitId,
@@ -369,6 +376,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
               ),
               type: "ordinary",
             });
+            findAssignments(forUpdate, forUpdateId);
             parents = [
               {
                 id: forUpdateId,
@@ -412,67 +420,8 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
       } else if (statement.name == "continueStatement") {
         continues = continues.concat(parents);
         parents = [];
-      } else if (statement.name == "localVariableDeclarationStatement") {
-        const decls =
-          statement.children.localVariableDeclaration[0].children
-            .variableDeclaratorList[0].children.variableDeclarator;
-        // console.log(decls);
-        parents = nodes.pop().parents;
-        for (const decl of decls) {
-          if (decl.children.variableInitializer) {
-            const declId = getId();
-            const dataParents = findUsedIdentifiers(
-              decl.children.variableInitializer
-            ).flatMap((e) => getVar(e));
-            nodes.push({
-              id: declId,
-              ast: decl.children.variableInitializer,
-              dataParents: dataParents,
-              parents: parents,
-              text: codeEl.value.slice(
-                decl.location.startOffset,
-                decl.location.endOffset + 1
-              ),
-              type: "ordinary",
-            });
-            setVar(
-              decl.children.variableDeclaratorId[0].children.Identifier[0]
-                .image,
-              [
-                {
-                  id: declId,
-                },
-              ]
-            );
-
-            parents = [
-              {
-                id: declId,
-              },
-            ];
-          }
-        }
-      } else if (
-        statement.children?.conditionalExpression
-          ?.at(0)
-          ?.children?.binaryExpression?.at(0)?.children?.AssignmentOperator
-      ) {
-        const assignment = statement.children.conditionalExpression
-          .at(0)
-          .children?.binaryExpression?.at(0);
-        setVar(
-          assignment.children.unaryExpression[0].children.primary[0].children
-            .primaryPrefix[0].children.fqnOrRefType[0].children
-            .fqnOrRefTypePartFirst[0].children.fqnOrRefTypePartCommon[0]
-            .children.Identifier[0].image,
-          [
-            {
-              id: currentId,
-            },
-          ]
-        );
       } else {
-        // Simple statement
+        findAssignments(statement, currentId);
       }
     }
     return variableStack.pop();
@@ -524,6 +473,68 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   const { svg, bindFunctions } = await mermaid.render("ast", flowchartCode);
   outputEl.innerHTML = svg;
   bindFunctions?.(outputEl);
+
+  function findAssignments(statement, currentId) {
+    if (statement.name == "localVariableDeclarationStatement") {
+      const decls =
+        statement.children.localVariableDeclaration[0].children
+          .variableDeclaratorList[0].children.variableDeclarator;
+      // console.log(decls);
+      parents = nodes.pop().parents;
+      for (const decl of decls) {
+        if (decl.children.variableInitializer) {
+          const declId = getId();
+          const dataParents = findUsedIdentifiers(
+            decl.children.variableInitializer
+          ).flatMap((e) => getVar(e));
+          nodes.push({
+            id: declId,
+            ast: decl.children.variableInitializer,
+            dataParents: dataParents,
+            parents: parents,
+            text: codeEl.value.slice(
+              decl.location.startOffset,
+              decl.location.endOffset + 1
+            ),
+            type: "ordinary",
+          });
+          setVar(
+            decl.children.variableDeclaratorId[0].children.Identifier[0].image,
+            [
+              {
+                id: declId,
+              },
+            ]
+          );
+
+          parents = [
+            {
+              id: declId,
+            },
+          ];
+        }
+      }
+    } else if (
+      statement.children?.conditionalExpression
+        ?.at(0)
+        ?.children?.binaryExpression?.at(0)?.children?.AssignmentOperator
+    ) {
+      const assignment = statement.children.conditionalExpression
+        .at(0)
+        .children?.binaryExpression?.at(0);
+      setVar(
+        assignment.children.unaryExpression[0].children.primary[0].children
+          .primaryPrefix[0].children.fqnOrRefType[0].children
+          .fqnOrRefTypePartFirst[0].children.fqnOrRefTypePartCommon[0].children
+          .Identifier[0].image,
+        [
+          {
+            id: currentId,
+          },
+        ]
+      );
+    }
+  }
 }
 
 class StatementsExtractor extends javaParser.BaseJavaCstVisitorWithDefaults {
