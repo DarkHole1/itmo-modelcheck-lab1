@@ -5,139 +5,63 @@ mermaid.initialize();
 
 const DEFAULT_CODES = [
   {
-    name: "Dataflow example",
-    value: `
-public class DFExample{
-  int fib(int n, int m)
-  {
-    int a;
-    int b = 1;
-    int c = n;
-    int d, e = 2;
-    a = 1 - b;
-    c = c + 1;
-    if (a < 1) {
-      d = a + 1;
-    } else {
-      d = b + 1;
-    }
-    e++;
-    for(int i; i < n; i++) {
-      c += i;
-    }
-    System.out.println(c);
-    return d;
-  }
-}
-`,
-  },
-  {
-    name: "For example",
-    value: `
-public class ForExample{
-  int fib(int n)
-  {
-    for (i = 1; i < n; i++)
-    {
-      a = i;
-    }
-
-    for (i = 2; i < n; i++)
-    {
-      if(i > 3) break;
-      if(i == 1) continue;
-    }
-
-    for(;;);
-  }
-}
-`,
-  },
-  {
-    name: "Unreachable code",
-    value: `
-public class UnExample{
-  int unreachable(int n)
-  {
-    return 1;
-    return 2;
-  }
-}
-`,
-  },
-  {
-    name: "Comments",
-    value: `
-public class CommExample{
-  int fib(int n)
-  {
-    int a;
-    // a
-    int b;
-    /* b */
-    int c;
-  }
-}
-`,
-  },
-  {
-    name: "If example",
-    value: `
-public class IfExample{
-  int fib(int n)
-  {
-    int a;
-    if (n < 1) a = 0;
-
-    if (n > 2) {
-      a = 1;
-    } else {
-      return 2;
-    }
-
-    if (n > 3) {
-      if (n > 4) {
-        return 3;
-      } else {
-        a = 4;
-      }
-    } else {
-      return 5;
-    }
-    return 6;
-  }
-}
-`,
-  },
-  {
-    name: "Hello World",
-    value: `
-public class HelloWorldExample{
-  public static void main(String args[]){
-    System.out.println("Hello World !");
-  }
-}
-`,
-  },
-  {
     name: "From lecture",
     value: `
-public class LectureExample{
-  int fib(int n)
+int fib(int n) {
+  int a = 0, b = 1, c, i;
+  if (n < 2) return n;
+  for (i = 1; i < n; i = i + 1)
   {
-    int a = 0, b = 1, c, i;
-    if (n < 2) return n;
-    for (i = 1; i < n; i++)
-    {
-      c = a + b;
-      a = b;
-      b = c;
-    }
-    return c;
+    c = a + b;
+    a = b;
+    b = c;
   }
+  return c;
 }
 `,
   },
+  {
+    name: "Empty for",
+    value: `
+int emptyFor() {
+  for(;;);
+}
+`,
+  },
+  {
+    name: "Full for",
+    value: `
+int fullFor() {
+  int i, a;
+  for(i = 0; i < 10; i = i + 1) {
+    a = a + i;
+  }
+  return a;
+}
+`,
+  }, {
+    name: "If",
+    value: `
+int ifExample() {
+  int a = 10, b;
+  if (a < 5) {
+    b = 10;
+  } else {
+    b = 0;
+  }
+  return b;
+}
+`,
+  }, {
+    name: "Unreachable code",
+    value: `
+int unreachable() {
+  int a = 10, b = 20;
+  return a;
+  return b;
+}
+`,
+  }, 
 ];
 
 window.addEventListener("load", () => {
@@ -246,12 +170,14 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
   const fnName =
     method.methodHeader[0].children.methodDeclarator[0].children.Identifier[0]
       .image;
-  const args =
-    method.methodHeader[0].children.methodDeclarator[0].children.formalParameterList[0].children.formalParameter.map(
-      (p) =>
-        p.children.variableParaRegularParameter[0].children
-          .variableDeclaratorId[0].children.Identifier[0].image
-    );
+  const args = method.methodHeader[0].children.methodDeclarator[0].children
+    .formalParameterList
+    ? method.methodHeader[0].children.methodDeclarator[0].children.formalParameterList[0].children.formalParameter.map(
+        (p) =>
+          p.children.variableParaRegularParameter[0].children
+            .variableDeclaratorId[0].children.Identifier[0].image
+      )
+    : [];
   console.log(args);
   const statements = extractStatements(method.methodBody);
 
@@ -441,7 +367,7 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
                 forUpdate.location.startOffset,
                 forUpdate.location.endOffset + 1
               ),
-              type: "conditional",
+              type: "ordinary",
             });
             parents = [
               {
