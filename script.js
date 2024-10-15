@@ -5,7 +5,7 @@ mermaid.initialize();
 
 const DEFAULT_CODES = [
   {
-    name: "From lecture",
+    name: "All-in-1",
     value: `
 int fib(int n) {
   int a = 0, b = 1, c, i;
@@ -18,19 +18,11 @@ int fib(int n) {
   }
   return c;
 }
-`,
-  },
-  {
-    name: "Empty for",
-    value: `
+
 int emptyFor() {
   for(;;);
 }
-`,
-  },
-  {
-    name: "Full for",
-    value: `
+
 int fullFor() {
   int i, a;
   for(i = 0; i < 10; i = i + 1) {
@@ -38,11 +30,7 @@ int fullFor() {
   }
   return a;
 }
-`,
-  },
-  {
-    name: "If",
-    value: `
+
 int ifExample() {
   int a = 10, b;
   if (a < 5) {
@@ -52,11 +40,7 @@ int ifExample() {
   }
   return b;
 }
-`,
-  },
-  {
-    name: "Unreachable code",
-    value: `
+
 int unreachable() {
   int a = 10, b = 20;
   return a;
