@@ -428,12 +428,27 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
 
   processStatements(statements);
 
+  // Postprocess
+  const bnc = nodes.filter(
+    (n) => n.ast.name == "breakStatement" || n.ast.name == "continueStatement"
+  );
+  const bncMap = new Map(bnc.map((e) => [e.id, e.parents]));
+  const nodes2 = nodes
+    .filter(
+      (n) => n.ast.name != "breakStatement" && n.ast.name != "continueStatement"
+    )
+    .map((n) => ({
+      ...n,
+      parents: n.parents.flatMap((p) => bncMap.get(p.id) ?? [p]),
+    }));
+  console.log(nodes2);
+
   let flowchartCode = `flowchart TD\n`;
 
   flowchartCode += `0("\`${fnName}(${args.join(", ")})\`")\n`;
 
   console.log(nodes);
-  for (const node of nodes) {
+  for (const node of nodes2) {
     switch (node.type) {
       case "ordinary":
         flowchartCode += `${node.id}["\`${node.text.replace(
