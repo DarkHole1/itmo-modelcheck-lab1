@@ -31,6 +31,17 @@ int fullFor() {
   return a;
 }
 
+int forBreakContinue(int n) {
+  int a, b = 10;
+  for(a = 0; a < n; a = a + 1) {
+    if (a % 2) continue;
+    if (a >= 100) break;
+    b = (b * 10 + a) % 3;
+  }
+  
+  return b;
+}
+
 int ifExample() {
   int a = 10, b;
   if (a < 5) {
@@ -360,7 +371,11 @@ async function analyzeMethod(method, graphEl, outputEl, codeEl) {
               ),
               type: "ordinary",
             });
-            findAssignments(forUpdate, forUpdateId);
+            findAssignments(
+              forUpdate.children.statementExpressionList[0].children
+                .statementExpression[0].children.expression[0],
+              forUpdateId
+            );
             parents = [
               {
                 id: forUpdateId,
